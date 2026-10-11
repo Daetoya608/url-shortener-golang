@@ -1,1 +1,5 @@
 .env
+.tools/
+*.db
+*.db-wal
+*.db-shm
