@@ -20,11 +20,16 @@ Go в `PATH` не обязателен: `scripts/go.sh` при первом за
 |---|---|---|
 | `ADDR` | `:8080` | адрес HTTP-сервера |
 | `BASE_URL` | `http://localhost:8080` | префикс для `short_url` (завершающий `/` отбрасывается) |
-| `DB_PATH` | `shortener.db` | путь к файлу SQLite (пока не используется: хранилище in-memory) |
+| `DB_PATH` | `shortener.db` | путь к файлу SQLite (создаётся при старте); `:memory:` — in-memory хранилище, данные теряются при остановке |
 
 ```bash
 ADDR=:9000 BASE_URL=https://sho.rt ./scripts/go.sh run ./cmd/shortener
+DB_PATH=:memory: ./scripts/go.sh run ./cmd/shortener   # без файла БД
 ```
+
+## Хранилище
+
+По умолчанию ссылки и счётчики переходов хранятся в SQLite-файле `shortener.db` (драйвер `modernc.org/sqlite` — чистый Go, cgo и gcc не нужны: `CGO_ENABLED=0 ./scripts/go.sh build ./...`). БД работает в режиме WAL, рядом с файлом появляются `shortener.db-wal` и `shortener.db-shm`; все три игнорируются git. Таблица создаётся автоматически при первом запуске.
 
 ## API
 

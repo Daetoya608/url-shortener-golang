@@ -37,3 +37,18 @@
 - Тексты ошибок 400/404/409 — из ошибок сервиса (`err.Error()`), они уже безопасны для клиента.
 - `/healthz` — `text/plain`, тело `ok`.
 - `DB_PATH` пока читается, но не используется — хранилище всегда memory до T3 (TODO в main.go).
+
+## 2026-10-12 — T3: SQLite-хранилище и подключение в main
+
+Сделано:
+- `internal/storage/sqlite.go`: `NewSQLite(path) (*SQLiteStore, error)` на `modernc.org/sqlite` v1.60.1 (без cgo), WAL + busy_timeout 5 с, `CREATE TABLE IF NOT EXISTS links`.
+- Тесты: тот же `runStoreContract` (БД в `t.TempDir()`); WAL и busy_timeout реально включены; данные (URL, created_at с наносекундами, clicks) переживают Close + повторное открытие, в т.ч. путь с пробелом; 400 конкурентных `IncrementClicks` через **два независимых пула** к одному файлу (как два процесса) — без потерь и без SQLITE_BUSY; несуществующий каталог → ошибка.
+- `main`: `openStore(DB_PATH)` — `:memory:` → memory, иначе SQLite; `Close` в defer с логированием ошибки; в лог пишется тип хранилища. Тест `cmd/shortener/main_test.go` на выбор.
+- `.gitignore`: добавлены `*.db-wal`, `*.db-shm` (`*.db` уже был). README и ARCHITECTURE обновлены.
+- Проверено вручную: создание ссылки, переход, рестарт сервиса — ссылка и clicks=1 на месте. `CGO_ENABLED=0 go build ./...` успешна.
+
+Решения:
+- Прагмы — через DSN `_pragma=…`, а не `db.Exec` после открытия: `database/sql` держит пул, и прагма, выполненная на одном соединении, не действовала бы на остальные (busy_timeout per-connection). После открытия `journal_mode` проверяется явно — если WAL не включился (например, ФС не поддерживает), `NewSQLite` возвращает ошибку, а не тихо работает в другом режиме.
+- Пул соединений не ограничен (`SetMaxOpenConns` не трогаем): в WAL читатели не блокируют писателя, а одиночные autocommit-UPDATE ждут блокировку через busy_timeout. Транзакций «чтение→запись» нет, поэтому deadlock-ситуации с SQLITE_BUSY, которую busy_timeout не лечит, не возникает.
+- Дубликат кода ловится по коду ошибки драйвера (`SQLITE_CONSTRAINT_PRIMARYKEY`/`_UNIQUE`), а не через `ON CONFLICT DO NOTHING` — так другие ошибки INSERT (например NOT NULL) не маскируются под «код занят».
+- Путь экранируется через `url.URL{Path}.EscapedPath()`, чтобы `?`/`#`/пробелы в `DB_PATH` не ломали DSN.

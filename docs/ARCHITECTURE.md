@@ -58,6 +58,8 @@ scripts/                     — go.sh, test.sh
   Обе реализации проходят один и тот же набор контрактных тестов (общая функция `runStoreContract(t, newStore)`).
 - **Коды**: 7 символов base62 из `crypto/rand`. При `ErrCodeExists` сервис повторяет генерацию до 5 раз. Пользователь может передать свой `alias` (`^[A-Za-z0-9_-]{3,32}$`); занятый alias → 409.
 - **Валидация URL**: `url.Parse`, схема только `http`/`https`, непустой host, длина ≤ 2048.
+- **SQLite** (`storage.NewSQLite(path)`): DSN `file:<path>?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)` — прагмы применяются к каждому соединению пула `database/sql`; после открытия проверяется, что `journal_mode` действительно `wal`. `created_at` пишется в UTC, колонка `TIMESTAMP` — драйвер читает её обратно в `time.Time`. Дубликат кода определяется по коду ошибки `SQLITE_CONSTRAINT_PRIMARYKEY` → `ErrCodeExists`; `IncrementClicks` — один `UPDATE … clicks = clicks + 1`, `RowsAffected()==0` → `ErrNotFound`.
+- **Выбор хранилища** в `main`: `DB_PATH == ":memory:"` → `storage.NewMemory()`, иначе SQLite; `Close` при завершении.
 - **Дубли длинных URL не дедуплицируются** — каждый POST создаёт новый код (проще и предсказуемее).
 - **Зарезервированные пути**: `api`, `healthz` нельзя использовать как alias.
 

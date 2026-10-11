@@ -30,9 +30,15 @@ func main() {
 func run() error {
 	cfg := config.Load()
 
-	// TODO(T3): SQLite по cfg.DBPath; пока всегда in-memory.
-	store := storage.NewMemory()
-	defer store.Close()
+	store, kind, err := openStore(cfg.DBPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			slog.Error("close storage", "err", err)
+		}
+	}()
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
@@ -48,7 +54,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("listening", "addr", cfg.Addr, "base_url", cfg.BaseURL, "storage", "memory")
+		slog.Info("listening", "addr", cfg.Addr, "base_url", cfg.BaseURL, "storage", kind)
 		errCh <- srv.ListenAndServe()
 	}()
 
@@ -70,4 +76,16 @@ func run() error {
 	}
 	slog.Info("stopped")
 	return nil
+}
+
+// openStore выбирает хранилище по DB_PATH: ":memory:" — in-memory, иначе файл SQLite.
+func openStore(dbPath string) (storage.Store, string, error) {
+	if dbPath == ":memory:" {
+		return storage.NewMemory(), "memory", nil
+	}
+	s, err := storage.NewSQLite(dbPath)
+	if err != nil {
+		return nil, "", err
+	}
+	return s, "sqlite:" + dbPath, nil
 }
